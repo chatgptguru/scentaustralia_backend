@@ -87,20 +87,36 @@ def run_scraping_job(job_id, keywords, locations, max_leads, sources, analyze_wi
     """Execute scraping job in background"""
     try:
         logger.info(f"Running scraping job {job_id}")
+        logger.info(f"Selected sources: {sources}")
         
         leads_found = []
         
-        # Scrape from each source
+        # Scrape only from selected sources
         for source in sources:
             if source == 'google_search':
+                logger.info(f"Scraping from: {source}")
                 results = scraper_service.scrape_google_search(keywords, locations, max_leads // len(sources))
                 leads_found.extend(results)
             elif source == 'yellow_pages':
+                logger.info(f"Scraping from: {source}")
                 results = scraper_service.scrape_yellow_pages(keywords, locations, max_leads // len(sources))
                 leads_found.extend(results)
             elif source == 'business_directories':
+                logger.info(f"Scraping from: {source}")
                 results = scraper_service.scrape_business_directories(keywords, locations, max_leads // len(sources))
                 leads_found.extend(results)
+            elif source == 'linkedin':
+                logger.info(f"Scraping from: {source}")
+                results = scraper_service.scrape_linkedin(keywords, locations, max_leads // len(sources))
+                leads_found.extend(results)
+            elif source == 'google_maps':
+                logger.info(f"Scraping from: {source}")
+                results = scraper_service.scrape_google_maps(keywords, locations, max_leads // len(sources))
+                leads_found.extend(results)
+            else:
+                logger.warning(f"Unknown source: {source}")
+        
+        logger.info(f"Total leads found from selected sources: {len(leads_found)}")
         
         # Update job progress
         scraping_jobs[job_id]['total_leads'] = len(leads_found)

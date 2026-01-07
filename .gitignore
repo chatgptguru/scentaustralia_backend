@@ -123,3 +123,7 @@ Thumbs.db
 uploads/
 logs/
 *.pid 
+
+# Scraper cache
+scraper_cache/
+scraping_jobs/
