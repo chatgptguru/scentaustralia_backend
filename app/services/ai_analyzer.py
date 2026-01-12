@@ -292,6 +292,25 @@ Focus on:
         
         return points
     
+    def analyze_lead_data(self, lead_data: Dict) -> Dict:
+        """Analyze lead data from Apollo.io or other sources (dictionary format)"""
+        
+        # Create a temporary Lead object for analysis
+        lead = Lead.from_dict({
+            'company_name': lead_data.get('company_name', 'Unknown'),
+            'contact_name': lead_data.get('contact_name'),
+            'email': lead_data.get('email'),
+            'phone': lead_data.get('phone'),
+            'website': lead_data.get('website'),
+            'industry': lead_data.get('industry'),
+            'location': lead_data.get('location'),
+            'company_size': lead_data.get('company_size'),
+            'source': lead_data.get('source', 'apollo.io')
+        })
+        
+        # Perform analysis
+        return self.analyze_lead(lead)
+    
     def quick_analyze(self, lead_data: Dict) -> Dict:
         """Quick analysis for preview purposes"""
         

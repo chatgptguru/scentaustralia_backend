@@ -25,13 +25,9 @@ class Config:
     # Use Azure if Azure key is provided, otherwise use OpenAI
     USE_AZURE_OPENAI = bool(AZURE_OPENAI_API_KEY)
     
-    # Scraping Configuration
-    SCRAPING_DELAY = int(os.getenv('SCRAPING_DELAY', 2))
-    MAX_LEADS_PER_RUN = int(os.getenv('MAX_LEADS_PER_RUN', 100))
-    USER_AGENT = os.getenv(
-        'USER_AGENT',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    )
+    # Apollo.io Configuration
+    APOLLO_API_KEY = os.getenv('APOLLO_API_KEY', '')
+    APOLLO_MAX_LEADS_PER_SEARCH = int(os.getenv('APOLLO_MAX_LEADS_PER_SEARCH', 100))
     
     # Request timeout
     REQUEST_TIMEOUT = 30
@@ -39,30 +35,6 @@ class Config:
     # Data Export Configuration
     EXPORT_FOLDER = os.getenv('EXPORT_FOLDER', 'exports')
     MAX_EXPORT_ROWS = int(os.getenv('MAX_EXPORT_ROWS', 10000))
-    
-    # Lead Sources Configuration
-    LEAD_SOURCES = {
-        'google_search': {
-            'enabled': True,
-            'base_url': 'https://www.google.com/search',
-            'max_pages': 5
-        },
-        'linkedin': {
-            'enabled': False,  # Requires special handling
-            'base_url': 'https://www.linkedin.com'
-        },
-        'yellow_pages': {
-            'enabled': True,
-            'base_url': 'https://www.yellowpages.com.au'
-        },
-        'business_directories': {
-            'enabled': True,
-            'urls': [
-                'https://www.hotfrog.com.au',
-                'https://www.truelocal.com.au'
-            ]
-        }
-    }
     
     # Industry Keywords for Scent Australia
     TARGET_INDUSTRIES = [
@@ -83,14 +55,28 @@ class Config:
     
     # Australian Locations to Target
     TARGET_LOCATIONS = [
-        'Sydney, NSW',
-        'Melbourne, VIC',
-        'Brisbane, QLD',
-        'Perth, WA',
-        'Adelaide, SA',
-        'Hobart, TAS',
-        'Darwin, NT',
-        'Canberra, ACT'
+        'Sydney, Australia',
+        'Melbourne, Australia',
+        'Brisbane, Australia',
+        'Perth, Australia',
+        'Adelaide, Australia',
+        'Hobart, Australia',
+        'Darwin, Australia',
+        'Canberra, Australia'
+    ]
+    
+    # Default job titles for lead search
+    TARGET_JOB_TITLES = [
+        'Owner',
+        'Founder',
+        'CEO',
+        'Managing Director',
+        'General Manager',
+        'Marketing Director',
+        'Operations Manager',
+        'Purchasing Manager',
+        'Procurement Manager',
+        'Facilities Manager'
     ]
 
 
@@ -108,4 +94,3 @@ class TestingConfig(Config):
     """Testing configuration"""
     TESTING = True
     DEBUG = True
-

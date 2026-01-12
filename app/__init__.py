@@ -70,16 +70,15 @@ def create_app(config_class=Config):
     
     # Register blueprints
     from app.routes.leads import leads_bp
-    from app.routes.scraper import scraper_bp
+    from app.routes.apollo import apollo_bp
     from app.routes.export import export_bp
     from app.routes.health import health_bp
     
     app.register_blueprint(health_bp, url_prefix='/api')
     app.register_blueprint(leads_bp, url_prefix='/api/leads')
-    app.register_blueprint(scraper_bp, url_prefix='/api/scraper')
+    app.register_blueprint(apollo_bp, url_prefix='/api/apollo')
     app.register_blueprint(export_bp, url_prefix='/api/export')
     
     logger.info("Application initialized successfully")
     
     return app
-
