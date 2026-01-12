@@ -10,15 +10,12 @@ import threading
 import asyncio
 
 from app.services.apollo_service import ApolloService
-from app.services.lead_manager import LeadManager
-from app.services.ai_analyzer import AILeadAnalyzer
+from app.services.shared_services import lead_manager, ai_analyzer
 
 apollo_bp = Blueprint('apollo', __name__)
 
 # Initialize services
 apollo_service = ApolloService()
-lead_manager = LeadManager()
-ai_analyzer = AILeadAnalyzer()
 
 # Store for tracking search jobs
 search_jobs = {}
@@ -51,10 +48,13 @@ def search_people():
         ))
         
         if not result.get('success'):
+            # Return 403 if it's an access denied error
+            status_code = 403 if result.get('error_code') == 'ACCESS_DENIED' or 'does not have access' in result.get('error', '') else 400
             return jsonify({
                 'success': False,
-                'error': result.get('error', 'Search failed')
-            }), 400
+                'error': result.get('error', 'Search failed'),
+                'error_code': result.get('error_code')
+            }), status_code
         
         # Transform people to lead format
         leads = [
@@ -101,10 +101,13 @@ def search_organizations():
         ))
         
         if not result.get('success'):
+            # Return 403 if it's an access denied error
+            status_code = 403 if result.get('error_code') == 'ACCESS_DENIED' or 'does not have access' in result.get('error', '') else 400
             return jsonify({
                 'success': False,
-                'error': result.get('error', 'Search failed')
-            }), 400
+                'error': result.get('error', 'Search failed'),
+                'error_code': result.get('error_code')
+            }), status_code
         
         # Transform organizations to lead format
         leads = [

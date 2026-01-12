@@ -34,6 +34,7 @@ class LeadSource(str, Enum):
     YELLOW_PAGES = 'yellow-pages'
     LINKEDIN = 'linkedin'
     BUSINESS_DIRECTORY = 'business-directory'
+    APOLLO_IO = 'apollo.io'
 
 
 @dataclass

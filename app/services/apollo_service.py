@@ -8,6 +8,7 @@ from typing import List, Dict, Optional, Any
 from loguru import logger
 from datetime import datetime
 import asyncio
+from urllib.parse import urlencode, quote
 from app.config import Config
 
 
@@ -26,7 +27,8 @@ class ApolloService:
         return {
             "Content-Type": "application/json",
             "Cache-Control": "no-cache",
-            "X-Api-Key": self.api_key
+            "accept": "application/json",
+            "x-api-key": self.api_key
         }
     
     def _is_configured(self) -> bool:
@@ -64,33 +66,48 @@ class ApolloService:
             logger.error("Apollo API key not configured")
             return {"success": False, "error": "Apollo API key not configured", "people": []}
         
-        endpoint = f"{self.BASE_URL}/mixed_people/search"
+        endpoint = f"{self.BASE_URL}/mixed_people/api_search"
         
-        payload = {
-            "per_page": min(per_page, 100),
-            "page": page
-        }
+        # Build query parameters manually - Apollo requires [] notation for arrays
+        # Format: person_titles[]=value1&person_titles[]=value2
+        query_parts = []
         
-        # Add optional filters
+        if per_page:
+            query_parts.append(f"per_page={min(per_page, 100)}")
+        if page:
+            query_parts.append(f"page={page}")
+        
+        # Add optional filters as array parameters with [] notation
         if person_titles:
-            payload["person_titles"] = person_titles
+            for title in person_titles:
+                query_parts.append(f"person_titles[]={quote(str(title), safe='')}")
         if person_locations:
-            payload["person_locations"] = person_locations
+            for location in person_locations:
+                query_parts.append(f"person_locations[]={quote(str(location), safe='')}")
         if organization_locations:
-            payload["organization_locations"] = organization_locations
+            for loc in organization_locations:
+                query_parts.append(f"organization_locations[]={quote(str(loc), safe='')}")
         if organization_industries:
-            payload["organization_industry_tag_ids"] = organization_industries
+            for industry in organization_industries:
+                query_parts.append(f"organization_industry_tag_ids[]={quote(str(industry), safe='')}")
         if organization_num_employees_ranges:
-            payload["organization_num_employees_ranges"] = organization_num_employees_ranges
+            for emp_range in organization_num_employees_ranges:
+                query_parts.append(f"organization_num_employees_ranges[]={quote(str(emp_range), safe='')}")
         if q_keywords:
-            payload["q_keywords"] = q_keywords
+            query_parts.append(f"q_keywords={quote(str(q_keywords), safe='')}")
+        
+        # Build full URL with query string
+        full_url = f"{endpoint}?{'&'.join(query_parts)}" if query_parts else endpoint
+        
+        logger.debug(f"Apollo API request URL: {full_url}")
             
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
+                # POST with query params in URL, empty JSON body
                 response = await client.post(
-                    endpoint,
+                    full_url,
                     headers=self._get_headers(),
-                    json=payload
+                    json={}  # Empty JSON body as required by Apollo
                 )
                 
                 if response.status_code == 200:
@@ -104,13 +121,24 @@ class ApolloService:
                     }
                 elif response.status_code == 401:
                     logger.error("Apollo API authentication failed")
-                    return {"success": False, "error": "Invalid API key", "people": []}
+                    return {"success": False, "error": "Invalid API key. Please check your APOLLO_API_KEY.", "people": []}
+                elif response.status_code == 403:
+                    error_data = response.json() if response.text else {}
+                    error_msg = error_data.get("error", "Access denied")
+                    logger.error(f"Apollo API access denied: {error_msg}")
+                    return {
+                        "success": False, 
+                        "error": f"API key does not have access to People Search endpoint. Your Apollo.io subscription may not include this feature. Error: {error_msg}. Please check your Apollo.io plan or use Organization Search instead.",
+                        "people": [],
+                        "error_code": error_data.get("error_code", "ACCESS_DENIED")
+                    }
                 elif response.status_code == 422:
                     logger.error(f"Apollo API validation error: {response.text}")
                     return {"success": False, "error": "Invalid search parameters", "people": []}
                 else:
-                    logger.error(f"Apollo API error: {response.status_code} - {response.text}")
-                    return {"success": False, "error": f"API error: {response.status_code}", "people": []}
+                    error_text = response.text[:500] if response.text else ""
+                    logger.error(f"Apollo API error: {response.status_code} - {error_text}")
+                    return {"success": False, "error": f"API error ({response.status_code}): {error_text}", "people": []}
                     
         except httpx.TimeoutException:
             logger.error("Apollo API request timed out")
@@ -179,9 +207,23 @@ class ApolloService:
                         "pagination": data.get("pagination", {}),
                         "total": data.get("pagination", {}).get("total_entries", 0)
                     }
+                elif response.status_code == 401:
+                    logger.error("Apollo API authentication failed")
+                    return {"success": False, "error": "Invalid API key. Please check your APOLLO_API_KEY.", "organizations": []}
+                elif response.status_code == 403:
+                    error_data = response.json() if response.text else {}
+                    error_msg = error_data.get("error", "Access denied")
+                    logger.error(f"Apollo API access denied: {error_msg}")
+                    return {
+                        "success": False,
+                        "error": f"API key does not have access to Organization Search endpoint. Your Apollo.io subscription may not include this feature. Error: {error_msg}",
+                        "organizations": [],
+                        "error_code": error_data.get("error_code", "ACCESS_DENIED")
+                    }
                 else:
-                    logger.error(f"Apollo API error: {response.status_code}")
-                    return {"success": False, "error": f"API error: {response.status_code}", "organizations": []}
+                    error_text = response.text[:500] if response.text else ""
+                    logger.error(f"Apollo API error: {response.status_code} - {error_text}")
+                    return {"success": False, "error": f"API error ({response.status_code}): {error_text}", "organizations": []}
                     
         except Exception as e:
             logger.error(f"Apollo API error: {str(e)}")

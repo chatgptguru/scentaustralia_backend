@@ -8,13 +8,12 @@ from datetime import datetime
 import os
 
 from app.services.export_service import ExportService
-from app.services.lead_manager import LeadManager
+from app.services.shared_services import lead_manager
 
 export_bp = Blueprint('export', __name__)
 
 # Initialize services
 export_service = ExportService()
-lead_manager = LeadManager()
 
 
 @export_bp.route('/excel', methods=['POST'])

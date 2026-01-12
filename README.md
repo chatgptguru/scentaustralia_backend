@@ -15,7 +15,10 @@ AI-powered lead generation backend using Apollo.io integration for finding and m
 ### Prerequisites
 
 - Python 3.9+
-- Apollo.io API Key (get from [Apollo Settings](https://app.apollo.io/#/settings/integrations/api))
+- Apollo.io API Key with **People Search** access (get from [Apollo Settings](https://app.apollo.io/#/settings/integrations/api))
+  - **Note**: Not all Apollo.io plans include People Search API access. You may need a paid plan.
+  - If you get a 403 error, your API key may not have access to the People Search endpoint.
+  - You can still use Organization Search which may be available on lower-tier plans.
 - OpenAI API Key (for AI analysis)
 
 ### Installation

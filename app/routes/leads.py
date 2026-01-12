@@ -7,15 +7,10 @@ from loguru import logger
 from datetime import datetime
 import uuid
 
-from app.services.lead_manager import LeadManager
-from app.services.ai_analyzer import AILeadAnalyzer
 from app.models.lead import Lead, LeadStatus, LeadPriority
+from app.services.shared_services import lead_manager, ai_analyzer
 
 leads_bp = Blueprint('leads', __name__)
-
-# Initialize services
-lead_manager = LeadManager()
-ai_analyzer = AILeadAnalyzer()
 
 
 @leads_bp.route('/', methods=['GET'])
@@ -265,6 +260,40 @@ def bulk_analyze_leads():
         
     except Exception as e:
         logger.error(f"Error in bulk analysis: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@leads_bp.route('/bulk-delete', methods=['POST'])
+def bulk_delete_leads():
+    """Delete multiple leads at once"""
+    try:
+        data = request.get_json()
+        lead_ids = data.get('lead_ids', [])
+        
+        if not lead_ids:
+            return jsonify({
+                'success': False,
+                'error': 'No lead IDs provided'
+            }), 400
+        
+        deleted_count = lead_manager.bulk_delete(lead_ids)
+        
+        logger.info(f"Bulk deleted {deleted_count} leads")
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'deleted_count': deleted_count,
+                'requested_count': len(lead_ids)
+            },
+            'message': f'Successfully deleted {deleted_count} leads'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in bulk delete: {str(e)}")
         return jsonify({
             'success': False,
             'error': str(e)

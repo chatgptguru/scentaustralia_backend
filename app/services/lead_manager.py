@@ -11,6 +11,10 @@ import os
 
 from app.models.lead import Lead, LeadStatus, LeadPriority
 
+# Get the absolute path to the data directory
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DATA_DIR = os.path.join(BASE_DIR, 'data')
+
 
 class LeadManager:
     """Service for managing leads"""
@@ -18,34 +22,42 @@ class LeadManager:
     def __init__(self):
         """Initialize lead manager with in-memory storage"""
         self._leads: Dict[str, Lead] = {}
-        self._data_file = 'data/leads.json'
+        self._data_file = os.path.join(DATA_DIR, 'leads.json')
+        logger.debug(f"Lead data file: {self._data_file}")
         self._load_leads()
     
     def _load_leads(self):
         """Load leads from file storage"""
         try:
             if os.path.exists(self._data_file):
-                with open(self._data_file, 'r') as f:
+                with open(self._data_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     for lead_data in data:
-                        lead = Lead.from_dict(lead_data)
-                        self._leads[lead.id] = lead
+                        try:
+                            lead = Lead.from_dict(lead_data)
+                            self._leads[lead.id] = lead
+                        except Exception as e:
+                            logger.warning(f"Error loading lead from data: {str(e)}")
+                            continue
                 logger.info(f"Loaded {len(self._leads)} leads from storage")
+            else:
+                logger.info("No leads file found, starting with empty storage")
         except Exception as e:
             logger.error(f"Error loading leads: {str(e)}")
-            # Initialize with sample data for demo
-            self._init_sample_data()
+            # Initialize with sample data for demo only if file doesn't exist
+            if not os.path.exists(self._data_file):
+                self._init_sample_data()
     
     def _save_leads(self):
         """Save leads to file storage"""
         try:
-            os.makedirs(os.path.dirname(self._data_file), exist_ok=True)
-            with open(self._data_file, 'w') as f:
+            os.makedirs(DATA_DIR, exist_ok=True)
+            with open(self._data_file, 'w', encoding='utf-8') as f:
                 data = [lead.to_dict() for lead in self._leads.values()]
-                json.dump(data, f, indent=2, default=str)
-            logger.debug(f"Saved {len(self._leads)} leads to storage")
+                json.dump(data, f, indent=2, default=str, ensure_ascii=False)
+            logger.debug(f"Saved {len(self._leads)} leads to {self._data_file}")
         except Exception as e:
-            logger.error(f"Error saving leads: {str(e)}")
+            logger.error(f"Error saving leads to {self._data_file}: {str(e)}")
     
     def _init_sample_data(self):
         """Initialize with sample lead data"""
@@ -257,4 +269,23 @@ class LeadManager:
     def get_all_leads(self) -> List[Lead]:
         """Get all leads without pagination"""
         return list(self._leads.values())
+    
+    def reload_leads(self):
+        """Reload leads from file storage (useful after external changes)"""
+        self._leads.clear()
+        self._load_leads()
+    
+    def bulk_delete(self, lead_ids: List[str]) -> int:
+        """Delete multiple leads at once"""
+        deleted_count = 0
+        for lead_id in lead_ids:
+            if lead_id in self._leads:
+                del self._leads[lead_id]
+                deleted_count += 1
+        
+        if deleted_count > 0:
+            self._save_leads()
+            logger.info(f"Bulk deleted {deleted_count} leads")
+        
+        return deleted_count
 
