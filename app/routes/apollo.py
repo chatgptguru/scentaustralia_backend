@@ -217,18 +217,67 @@ def run_generation_job(job_id, search_type, person_titles, person_locations,
         
         # Perform search based on type
         if search_type == 'people':
-            result = asyncio.run(apollo_service.search_people(
-                person_titles=person_titles if person_titles else None,
-                person_locations=person_locations if person_locations else None,
-                organization_locations=organization_locations if organization_locations else None,
-                organization_industries=organization_industries if organization_industries else None,
-                q_keywords=keywords if keywords else None,
-                per_page=min(max_leads, 100),
-                page=1
-            ))
-            
+            # First, search for people matching the filters
+            result = asyncio.run(
+                apollo_service.search_people(
+                    person_titles=person_titles if person_titles else None,
+                    person_locations=person_locations if person_locations else None,
+                    organization_locations=organization_locations if organization_locations else None,
+                    organization_industries=organization_industries if organization_industries else None,
+                    q_keywords=keywords if keywords else None,
+                    per_page=min(max_leads, 100),
+                    page=1,
+                )
+            )
+
             if result.get('success'):
-                for person in result.get('people', [])[:max_leads]:
+                people = result.get('people', [])[:max_leads]
+
+                # Enrich each person to reveal emails & phones (uses credits per Apollo docs).
+                enriched_people = []
+                for idx, person in enumerate(people):
+                    try:
+                        # Extract available identifiers from search result
+                        person_id = person.get("id")
+                        email = person.get("email")
+                        linkedin_url = person.get("linkedin_url")
+                        first_name = person.get("first_name")
+                        last_name = person.get("last_name")
+                        org = person.get("organization", {}) or {}
+                        organization_name = org.get("name") or person.get("organization_name")
+                        domain = org.get("primary_domain") or org.get("website_url")
+                        
+                        logger.debug(f"Enriching person {idx+1}/{len(people)}: {first_name} {last_name} at {organization_name}")
+                        
+                        enriched_result = asyncio.run(
+                            apollo_service.enrich_person(
+                                email=email,
+                                linkedin_url=linkedin_url,
+                                person_id=person_id,
+                                first_name=first_name,
+                                last_name=last_name,
+                                organization_name=organization_name,
+                                domain=domain,
+                                reveal_personal_emails=True,
+                                reveal_phone_number=False,  # Only need emails, phone requires webhook_url
+                            )
+                        )
+                        
+                        if enriched_result.get("success") and enriched_result.get("person"):
+                            enriched_person = enriched_result["person"]
+                            enriched_email = enriched_person.get("email")
+                            logger.info(f"Enrichment successful for {first_name} {last_name}: email={bool(enriched_email)}")
+                            enriched_people.append(enriched_person)
+                        else:
+                            error_msg = enriched_result.get("error", "Unknown error")
+                            logger.warning(f"Enrichment failed for {first_name} {last_name}: {error_msg}. Using original data.")
+                            # Fallback to original person data if enrichment fails
+                            enriched_people.append(person)
+                    except Exception as enrich_err:
+                        logger.error(f"Error enriching person {idx+1} from Apollo: {enrich_err}")
+                        enriched_people.append(person)
+
+                for person in enriched_people:
                     leads_data.append(apollo_service.transform_person_to_lead(person))
         else:
             result = asyncio.run(apollo_service.search_organizations(
@@ -347,10 +396,14 @@ def enrich_contact():
                 'error': 'Email or LinkedIn URL required'
             }), 400
         
-        result = asyncio.run(apollo_service.enrich_person(
-            email=email,
-            linkedin_url=linkedin_url
-        ))
+        result = asyncio.run(
+            apollo_service.enrich_person(
+                email=email,
+                linkedin_url=linkedin_url,
+                reveal_personal_emails=True,
+                reveal_phone_number=False,  # Only need emails, phone requires webhook_url
+            )
+        )
         
         if not result.get('success'):
             return jsonify({

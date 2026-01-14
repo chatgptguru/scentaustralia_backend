@@ -43,6 +43,7 @@ class ApolloService:
         organization_industries: Optional[List[str]] = None,
         organization_num_employees_ranges: Optional[List[str]] = None,
         q_keywords: Optional[str] = None,
+        contact_email_statuses: Optional[List[str]] = None,
         per_page: int = 25,
         page: int = 1
     ) -> Dict[str, Any]:
@@ -72,6 +73,11 @@ class ApolloService:
         # Format: person_titles[]=value1&person_titles[]=value2
         query_parts = []
         
+        # Default to only contacts with verified emails if not explicitly provided.
+        # This matches Apollo docs: `contact_email_status: ["verified"]`
+        if contact_email_statuses is None:
+            contact_email_statuses = ["verified"]
+        
         if per_page:
             query_parts.append(f"per_page={min(per_page, 100)}")
         if page:
@@ -95,6 +101,9 @@ class ApolloService:
                 query_parts.append(f"organization_num_employees_ranges[]={quote(str(emp_range), safe='')}")
         if q_keywords:
             query_parts.append(f"q_keywords={quote(str(q_keywords), safe='')}")
+        if contact_email_statuses:
+            for status in contact_email_statuses:
+                query_parts.append(f"contact_email_status[]={quote(str(status), safe='')}")
         
         # Build full URL with query string
         full_url = f"{endpoint}?{'&'.join(query_parts)}" if query_parts else endpoint
@@ -229,13 +238,29 @@ class ApolloService:
             logger.error(f"Apollo API error: {str(e)}")
             return {"success": False, "error": str(e), "organizations": []}
     
-    async def enrich_person(self, email: str = None, linkedin_url: str = None) -> Dict[str, Any]:
+    async def enrich_person(
+        self,
+        email: str = None,
+        linkedin_url: str = None,
+        person_id: str = None,
+        first_name: str = None,
+        last_name: str = None,
+        organization_name: str = None,
+        domain: str = None,
+        reveal_personal_emails: bool = True,
+        reveal_phone_number: bool = False,  # Requires webhook_url, so disabled by default
+    ) -> Dict[str, Any]:
         """
         Enrich a person's data using Apollo.io People Enrichment API
         
         Args:
             email: Person's email address
             linkedin_url: Person's LinkedIn profile URL
+            person_id: Apollo person ID
+            first_name: Person's first name
+            last_name: Person's last name
+            organization_name: Company name
+            domain: Company domain
             
         Returns:
             Enriched person data
@@ -243,16 +268,36 @@ class ApolloService:
         if not self._is_configured():
             return {"success": False, "error": "Apollo API key not configured"}
         
-        if not email and not linkedin_url:
-            return {"success": False, "error": "Email or LinkedIn URL required"}
-        
         endpoint = f"{self.BASE_URL}/people/match"
         
-        payload = {}
+        payload: Dict[str, Any] = {}
+        
+        # Build payload with available identifiers (Apollo docs support multiple combinations)
         if email:
             payload["email"] = email
         if linkedin_url:
             payload["linkedin_url"] = linkedin_url
+        if person_id:
+            payload["person_id"] = person_id
+        if first_name:
+            payload["first_name"] = first_name
+        if last_name:
+            payload["last_name"] = last_name
+        if organization_name:
+            payload["organization_name"] = organization_name
+        if domain:
+            payload["domain"] = domain
+        
+        # Per Apollo docs, reveal_personal_emails is required to return emails
+        # reveal_phone_number requires webhook_url, so we only use it if explicitly needed
+        # https://docs.apollo.io/reference/people-enrichment
+        payload["reveal_personal_emails"] = reveal_personal_emails
+        if reveal_phone_number:
+            payload["reveal_phone_number"] = reveal_phone_number
+        
+        # Need at least one identifier
+        if not payload or (not email and not linkedin_url and not person_id and not (first_name and (organization_name or domain))):
+            return {"success": False, "error": "Insufficient identifiers for enrichment"}
             
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -264,9 +309,13 @@ class ApolloService:
                 
                 if response.status_code == 200:
                     data = response.json()
-                    return {"success": True, "person": data.get("person", {})}
+                    person_data = data.get("person", {})
+                    logger.debug(f"Apollo enrichment successful. Email found: {bool(person_data.get('email'))}")
+                    return {"success": True, "person": person_data}
                 else:
-                    return {"success": False, "error": f"API error: {response.status_code}"}
+                    error_text = response.text[:500] if response.text else ""
+                    logger.warning(f"Apollo enrichment failed: {response.status_code} - {error_text}")
+                    return {"success": False, "error": f"API error: {response.status_code} - {error_text}"}
                     
         except Exception as e:
             logger.error(f"Apollo enrichment error: {str(e)}")
@@ -283,12 +332,78 @@ class ApolloService:
             Lead data dictionary
         """
         organization = person.get("organization", {}) or {}
+
+        # Extract email from multiple possible fields in Apollo response
+        primary_email = None
+        
+        # Try direct email field first
+        primary_email = person.get("email")
+        
+        # Try emails array (common in enriched responses)
+        if not primary_email:
+            emails_list = person.get("emails") or []
+            if isinstance(emails_list, list) and len(emails_list) > 0:
+                # Get first verified email, or first email if none verified
+                for email_entry in emails_list:
+                    if isinstance(email_entry, dict):
+                        email_value = email_entry.get("email") or email_entry.get("address") or email_entry.get("raw_email")
+                        if email_value:
+                            primary_email = email_value
+                            break
+                    elif isinstance(email_entry, str):
+                        primary_email = email_entry
+                        break
+        
+        # Try email_addresses array
+        if not primary_email:
+            email_addresses = person.get("email_addresses") or []
+            if isinstance(email_addresses, list) and len(email_addresses) > 0:
+                for addr in email_addresses:
+                    if isinstance(addr, dict):
+                        email_value = addr.get("email") or addr.get("address") or addr.get("raw_email")
+                        if email_value:
+                            primary_email = email_value
+                            break
+                    elif isinstance(addr, str):
+                        primary_email = addr
+                        break
+        
+        # Try personal_emails (from enrichment with reveal_personal_emails)
+        if not primary_email:
+            personal_emails = person.get("personal_emails") or []
+            if isinstance(personal_emails, list) and len(personal_emails) > 0:
+                primary_email = personal_emails[0] if isinstance(personal_emails[0], str) else personal_emails[0].get("email")
+        
+        # Extract phone from multiple possible fields
+        phone = None
+        if person.get("phone_numbers"):
+            phone_list = person.get("phone_numbers")
+            if isinstance(phone_list, list) and len(phone_list) > 0:
+                phone_obj = phone_list[0] if isinstance(phone_list[0], dict) else None
+                if phone_obj:
+                    phone = phone_obj.get("sanitized_number") or phone_obj.get("raw_number") or phone_obj.get("number")
+                elif isinstance(phone_list[0], str):
+                    phone = phone_list[0]
+        
+        # Log if we found email
+        contact_name = person.get("name", f"{person.get('first_name', '')} {person.get('last_name', '')}".strip())
+        if primary_email:
+            logger.info(f"✓ Extracted email for {contact_name}: {primary_email}")
+        else:
+            # Log available email-related fields for debugging
+            email_fields = {
+                "email": person.get("email"),
+                "emails": person.get("emails"),
+                "email_addresses": person.get("email_addresses"),
+                "personal_emails": person.get("personal_emails"),
+            }
+            logger.warning(f"✗ No email found for {contact_name} (ID: {person.get('id')}). Available fields: {email_fields}")
         
         return {
             "company_name": organization.get("name", person.get("organization_name", "Unknown")),
             "contact_name": person.get("name", f"{person.get('first_name', '')} {person.get('last_name', '')}".strip()),
-            "email": person.get("email"),
-            "phone": person.get("phone_numbers", [{}])[0].get("sanitized_number") if person.get("phone_numbers") else None,
+            "email": primary_email,
+            "phone": phone,
             "website": organization.get("website_url") or organization.get("primary_domain"),
             "linkedin_url": person.get("linkedin_url"),
             "industry": organization.get("industry") or ", ".join(organization.get("keywords", [])[:3]),
@@ -332,13 +447,14 @@ class ApolloService:
         }
 
 
-# Synchronous wrapper for use in Flask routes
+    # Synchronous wrapper for use in Flask routes
 def search_people_sync(
     person_titles: Optional[List[str]] = None,
     person_locations: Optional[List[str]] = None,
     organization_locations: Optional[List[str]] = None,
     organization_industries: Optional[List[str]] = None,
     q_keywords: Optional[str] = None,
+    contact_email_statuses: Optional[List[str]] = None,
     per_page: int = 25,
     page: int = 1
 ) -> Dict[str, Any]:
@@ -350,6 +466,7 @@ def search_people_sync(
         organization_locations=organization_locations,
         organization_industries=organization_industries,
         q_keywords=q_keywords,
+        contact_email_statuses=contact_email_statuses,
         per_page=per_page,
         page=page
     ))
